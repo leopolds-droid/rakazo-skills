@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "rakazo-skills",
+  "version": "0.1.0",
+  "description": "Private-workflow-neutral handoff skills for exchanging job files through an existing FileHub.",
+  "keywords": ["filehub", "handoff", "agents"]
+}
