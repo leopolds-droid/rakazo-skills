@@ -9,9 +9,10 @@ description: Tauscht Aufträge und Ergebnisse zwischen KI-Agenten über den vorh
 
 ## Vorbereitung (einmalig, außerhalb dieses öffentlichen Skills)
 - Auf dem Agent Computer muss `curl` vorhanden sein.
-- FileHub-URL, Projekt und geschütztes `curl`-Konfigurationsfile aus der **privaten** Betriebsumgebung verwenden.
-- Das Konfigurationsfile (z. B. `~/.config/filehub/curl.conf`, Modus 0600) enthält den FileHub-Zugangsheader. **Keine Tokens oder privaten URLs in Git, Chat, Tool-Ausgaben oder ungeschützte Logs schreiben.** Kein `curl -v` und keine Request-Header ausgeben.
-- Falls der Zugang fehlt: Einrichtung melden, keine Authentifizierung umgehen. Der Skill darf keinen Token aus anderen Systemen auslesen.
+- FileHub-URL und Projekt aus der **privaten** Betriebsumgebung verwenden.
+- Die FileHub-Zugangsdaten sind in Rakazos **eigenem Tresor** als Command-Credential `filehub-token` hinterlegt und stehen Chiefs Shell-Befehlen automatisch als `$FILEHUB_TOKEN` zur Verfügung.
+- **Keine Token-Datei und keine Umgebungsdatei anlegen.** Nur die von Rakazo bereitgestellte Shell-Variable benutzen. **Keine Tokens oder privaten URLs in Git, Chat, Tool-Ausgaben oder ungeschützte Logs schreiben.** Kein `curl -v`, `set -x` oder Ausgeben von Request-Headern.
+- Falls `$FILEHUB_TOKEN` leer ist: Einrichtung im Rakazo-Tresor melden; keine Authentifizierung umgehen und keine Tokens aus anderen Systemen auslesen.
 - Die installierte Legacy-API hat `/health`, `/list`, `/download`, `/upload`. `/v1/*` erst nutzen, wenn live bestätigt.
 
 ## Dateinamen
@@ -23,21 +24,22 @@ Die folgenden Variablen werden aus der **privaten** Laufzeitkonfiguration gesetz
 ```sh
 # Beispiele: FILEHUB_URL=https://.../api/filehub
 # FILEHUB_PROJECT=allgemein
-# FILEHUB_CURL_CONFIG=$HOME/.config/filehub/curl.conf
+# FILEHUB_TOKEN wird von Rakazo aus dem Tresor bereitgestellt (nicht selbst ausgeben)
+: "${FILEHUB_TOKEN:?Rakazo FileHub Token fehlt}"
 
 # Dateiliste; kind=all ist wichtig, da der Legacy-Default 'pieces' nur Musikdateien zeigt.
-curl -fsS --config "$FILEHUB_CURL_CONFIG" --get \
+curl -fsS -H "X-FileHub-Token: $FILEHUB_TOKEN" --get \
   --data-urlencode "project=$FILEHUB_PROJECT" \
   --data-urlencode "kind=all" \
   "$FILEHUB_URL/list"
 
 # Gewünschten Pfad exakt aus der Liste verwenden:
-curl -fsS --config "$FILEHUB_CURL_CONFIG" --get \
+curl -fsS -H "X-FileHub-Token: $FILEHUB_TOKEN" --get \
   --data-urlencode "path=$FILEHUB_PATH" \
   --output "$LOCAL_FILE" "$FILEHUB_URL/download"
 
 # Neue lokale Ergebnisdatei hochladen; Namen vorher auf ASCII-ID-Muster prüfen:
-curl -fsS --config "$FILEHUB_CURL_CONFIG" \
+curl -fsS -H "X-FileHub-Token: $FILEHUB_TOKEN" \
   --request PUT --data-binary "@$LOCAL_FILE" \
   --write-out '\nHTTP=%{http_code}\n' \
   "$FILEHUB_URL/upload?project=$FILEHUB_PROJECT&area=projects&name=$FILEHUB_NAME"
