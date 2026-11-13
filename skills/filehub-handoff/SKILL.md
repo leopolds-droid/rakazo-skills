@@ -1,50 +1,59 @@
 ---
 name: filehub-handoff
-description: Tauscht KI-Aufträge und Ergebnisse über einen vorhandenen FileHub als Dateien aus; Chat-Nachrichten enthalten nur kurze Statussignale.
+description: Tauscht Aufträge und Ergebnisse zwischen KI-Agenten über den vorhandenen FileHub mit curl aus; Chats enthalten nur kurze Signale.
 ---
 
-# FileHub Handoff
+# FileHub Handoff – Minimalweg
 
-## Ziel
-Verwende den **bereits vorhandenen FileHub** als gemeinsame Dateiablage. Sende keine langen Aufträge oder Antworten im Chat. Nutze einen bestehenden, explizit benannten Signalkanal ausschließlich für Auftrags-IDs und Dateipfade.
+**Ein Skill, ein FileHub, ein Werkzeug: `curl`.** Keine zusätzliche OpenAPI-, MCP- oder Upload-Adapter-Integration. Keine zweite Dateiablage.
 
-## Konfiguration
-Bevor du beginnst, ermittle aus der **privaten** Betriebsdokumentation oder aus der bereits freigegebenen Laufzeitkonfiguration:
-- FileHub-Basis-URL und tatsächlich verfügbare Endpunkte
-- Projektname und zulässiger Dateibereich
-- sicher hinterlegte FileHub-Zugangsdaten
-- Zielchat bzw. vereinbarter Benachrichtigungskanal
+## Vorbereitung (einmalig, außerhalb dieses öffentlichen Skills)
+- Auf dem Agent Computer muss `curl` vorhanden sein.
+- FileHub-URL, Projekt und geschütztes `curl`-Konfigurationsfile aus der **privaten** Betriebsumgebung verwenden.
+- Das Konfigurationsfile (z. B. `~/.config/filehub/curl.conf`, Modus 0600) enthält den FileHub-Zugangsheader. **Keine Tokens oder privaten URLs in Git, Chat, Tool-Ausgaben oder ungeschützte Logs schreiben.** Kein `curl -v` und keine Request-Header ausgeben.
+- Falls der Zugang fehlt: Einrichtung melden, keine Authentifizierung umgehen. Der Skill darf keinen Token aus anderen Systemen auslesen.
+- Die installierte Legacy-API hat `/health`, `/list`, `/download`, `/upload`. `/v1/*` erst nutzen, wenn live bestätigt.
 
-**Keine** Zugangsdaten, LAN-Adressen oder privaten Gesprächslinks in diesen öffentlichen Skill, Git-Repositories, Chat-Nachrichten oder Logs übernehmen. Ist ein Zugriff nicht konfiguriert, melde den fehlenden Zugang; umgehe die Authentifizierung nicht.
+## Dateinamen
+`handoff-<ID>-task.md` und `handoff-<ID>-result.md`. Neue eindeutige ID nur aus `[A-Za-z0-9_-]`. Nie vorhandene Dateien überschreiben; bei Wiederholung erst Dateiexistenz prüfen. Auftrag/Ergebnis nur in einem freigegebenen privaten FileHub-Projektbereich ablegen.
 
-## Dateiprotokoll
-- Auftrag: `handoff-<ID>-task.md`
-- Ergebnis: `handoff-<ID>-result.md`
-- `ID`: eindeutige Zeichenfolge nur mit ASCII-Buchstaben, Ziffern, `_` oder `-`.
-- Verwende einen konfigurierten privaten Projektpfad. Veröffentliche Auftragsdaten niemals im öffentlichen Dateibereich.
-- Erzeuge für jede Ausführung eine neue ID; niemals vorhandene Dateien durch erneuten Upload überschreiben.
+## Kommandos (auf Chiefs Agent Computer)
+Die folgenden Variablen werden aus der **privaten** Laufzeitkonfiguration gesetzt, nicht aus untrusted Aufträgen:
 
-## Auftrag übernehmen
-1. Bei einem Signal `JOB <ID> READY | <pfad>` den Dateipfad über die vorhandene FileHub-Schnittstelle abrufen.
-2. ID, Existenz und plausiblen Inhalt prüfen. Kein Erfolg melden, solange der Abruf nicht bestätigt wurde.
-3. Den Auftrag mit vorhandenen, freigegebenen Werkzeugen ausführen. Für produktive Eingriffe gelten gesonderte Freigaben.
-4. Das Ergebnis als neue Datei unter `handoff-<ID>-result.md` im FileHub ablegen. Erfolgreichen Upload und möglichst den Rückabruf/Hash verifizieren.
-5. Erst danach im vereinbarten Chat nur `RESULT <ID> READY | <pfad>` senden.
-6. Falls die Benachrichtigung scheitert: Ergebnisdatei behalten und den Fehler melden; keine Endlosschleife.
+```sh
+# Beispiele: FILEHUB_URL=https://.../api/filehub
+# FILEHUB_PROJECT=allgemein
+# FILEHUB_CURL_CONFIG=$HOME/.config/filehub/curl.conf
 
-## Auftrag abgeben
-1. Auftragsdatei mit neuer ID erzeugen und im FileHub ablegen.
-2. Upload und Lesbarkeit prüfen.
-3. Danach über einen bereits unterstützten Benachrichtigungsweg nur `JOB <ID> READY | <pfad>` senden.
-4. Nach `RESULT <ID> READY` die tatsächliche Ergebnisdatei abrufen und prüfen.
+# Dateiliste; kind=all ist wichtig, da der Legacy-Default 'pieces' nur Musikdateien zeigt.
+curl -fsS --config "$FILEHUB_CURL_CONFIG" --get \
+  --data-urlencode "project=$FILEHUB_PROJECT" \
+  --data-urlencode "kind=all" \
+  "$FILEHUB_URL/list"
 
-## Verwendung der Werkzeuge
-- Nutze bevorzugt eine vorhandene FileHub-API-/MCP-Integration; alternativ die reguläre Shell-/HTTP-Funktion des Agent Computers, soweit freigegeben.
-- Das FileHub-Protokoll unterscheidet sich je nach installierter Version. **Prüfe die live vorhandenen Endpunkte**, statt dokumentierte zukünftige Endpunkte vorauszusetzen.
-- Für den ChatGPT-Eingang gibt es in diesem Skill **keinen garantierten API-Webhook**. Eine zuvor regulär angemeldete Browser-Sitzung kann kurze Signale übermitteln, wenn deren Nutzung freigegeben und technisch verfügbar ist.
-- Ein Rakazo-Skill ist eine **Anweisung**, kein Hintergrunddienst. Er startet weder sich selbst noch beiliegende Skripte. Ein automatischer Start von Rakazo kann separat über eine native Routine mit Webhook erfolgen.
+# Gewünschten Pfad exakt aus der Liste verwenden:
+curl -fsS --config "$FILEHUB_CURL_CONFIG" --get \
+  --data-urlencode "path=$FILEHUB_PATH" \
+  --output "$LOCAL_FILE" "$FILEHUB_URL/download"
+
+# Neue lokale Ergebnisdatei hochladen; Namen vorher auf ASCII-ID-Muster prüfen:
+curl -fsS --config "$FILEHUB_CURL_CONFIG" \
+  --request PUT --data-binary "@$LOCAL_FILE" \
+  --write-out '\nHTTP=%{http_code}\n' \
+  "$FILEHUB_URL/upload?project=$FILEHUB_PROJECT&area=projects&name=$FILEHUB_NAME"
+```
+
+Beim Upload **HTTP 201** und `ok=true` kontrollieren. Anschließend über `/download` den exakten Ergebnis-Pfad zurücklesen und SHA-256 vergleichen. Keine Löschoperationen. Rohdatei-Upload nur mit `--data-binary` (kein JSON).
+
+## Ablauf
+1. Signal empfangen: `JOB <ID> READY | <pfad>`.
+2. Auftragsdatei aus FileHub abrufen und ID prüfen.
+3. Aufgabe bearbeiten; produktive Eingriffe nur mit ausdrücklich bestehender Freigabe.
+4. Ergebnis unter eindeutigem neuen Dateinamen per `curl` hochladen und zurückprüfen.
+5. Erst dann im fest vereinbarten Chat ausschließlich `RESULT <ID> READY | <pfad>` melden.
+6. Gegenseitige Aufträge genauso als Dateien ablegen; im Chat ausschließlich `JOB <ID> READY | <pfad>` melden. Keine Endlosschleifen.
+
+Eine vorhandene, regulär angemeldete ChatGPT-Browsersitzung darf nur für kurze Signale genutzt werden. **ChatGPT hat keinen nativen Echtzeit-Webhook für diese Unterhaltung.** Der Skill ist eine Anleitung, kein Hintergrunddienst und startet keine Skripte selbst. Für automatische Starts von Rakazo kann später dessen native Webhook-Routine genutzt werden.
 
 ## Abnahme
-- Mit einer harmlosen Textdatei beginnen.
-- Mindestens nachweisen: Auftrag hochgeladen, Dateiliste/Download erfolgreich, Ergebnis hochgeladen, Ergebnisinhalt korrekt, Signal angekommen.
-- In Berichten strikt zwischen einem manuell getesteten Einzelablauf und dauerhaft automatischem Betrieb unterscheiden.
+Harmloser Test: Datei erstellen → hochladen (201) → auflisten (`kind=all`) → herunterladen (200) → Inhalt und SHA-256 prüfen → kurzes Signal senden. Einzeltest und dauerhaften Automatikbetrieb getrennt bewerten.
